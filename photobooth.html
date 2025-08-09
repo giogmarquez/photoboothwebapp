@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Photobooth — 3 Shot Editor</title>
+  <style>
+    body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#ffffff 0%, #FFEBEB 100%);color:#374151;display:flex;height:100vh}
+    .sidebar{width:360px;min-width:300px;max-width:420px;background:#fff;border-left:1px solid #ffeBEB;padding:14px;overflow:auto}
+    .main{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+    button,select,input[type="color"],input[type="checkbox"],input[type="file"],input[type="text"],input[type="range"]{background:#fff;border:1px solid #ffd6d6;padding:8px 10px;border-radius:10px;color:#6b7280;cursor:pointer}
+    .primary{background:#EE7C99;color:#fff;border:0}
+    h1{font-size:18px;margin:0 0 8px;color:#EE7C99}
+    .card{background:#fff;border:1px solid #ffeBEB;border-radius:12px;padding:12px;margin-bottom:10px}
+    label{font-size:13px;color:#9ca3af;display:block;margin-bottom:6px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    canvas#preview{width:min(92vmin,820px);height:auto;max-height:92vh;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,0.15);background:#fff}
+    .overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(255,235,235,0.35)}
+    .overlay .cap{font-size:22px;color:#EE7C99;margin-bottom:6px;text-align:center}
+    .overlay .count{font-size:56px;color:#EE7C99;font-weight:700;text-align:center}
+    .hint{font-size:12px;color:#9ca3af}
+  </style>
+</head>
+<body>
+  <div class="main">
+    <canvas id="preview" width="500" height="1300"></canvas>
+    <div id="overlay" class="overlay"><div><div class="cap" id="ovCap"></div><div class="count" id="ovCount"></div></div></div>
+  </div>
+  <aside class="sidebar">
+    <h1>Photobooth Editor</h1>
+    <div class="toolbar">
+      <button id="backBtn">Back</button>
+      <button id="exportPng" class="primary">Export PNG</button>
+      <button id="exportJpeg">Export JPEG</button>
+    </div>
+
+    <div class="card">
+      <label>Shots</label>
+      <div class="row">
+        <button id="importShots">Import from session</button>
+        <button id="captureShots" class="primary">Capture 3 shots</button>
+        <button id="useSynthetic">Use Synthetic</button>
+      </div>
+      <div class="hint" style="margin-top:6px">Tip: Open from the main page using "Open Photobooth" to send your latest shots here automatically.</div>
+    </div>
+
+    <div class="card">
+      <label>Strip template</label>
+      <div class="row">
+        <select id="style">
+          <option value="classic">Classic black</option>
+          <option value="white">Clean white</option>
+          <option value="pink">Pink</option>
+          <option value="film">Film</option>
+        </select>
+        <label class="hint">Background color <input id="bgColor" type="color" value="#FFFFFF"/></label>
+        <label class="hint">Background image <input id="bgImage" type="file" accept="image/*"/></label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="hint">Frame spacing <input id="spacing" type="range" min="12" max="40" step="1" value="26"/></label>
+        <label class="hint">Frame margin <input id="margin" type="range" min="12" max="40" step="1" value="24"/></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Filters</label>
+      <div class="row">
+        <select id="filter">
+          <option value="none">None</option>
+          <option value="grayscale">Grayscale</option>
+          <option value="sepia">Sepia</option>
+          <option value="invert">Invert</option>
+          <option value="vibrant">Vibrant</option>
+          <option value="contrast">High Contrast</option>
+          <option value="cool">Cool</option>
+          <option value="warm">Warm</option>
+          <option value="blur">Soft Blur</option>
+          <option value="bwFilm">B&W Film</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Sticker</label>
+      <div class="row">
+        <input id="emoji" type="text" placeholder="emoji (e.g., ⭐️)" style="width:120px"/>
+        <label class="hint">Size <input id="emojiSize" type="range" min="24" max="160" step="2" value="64"/></label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="hint">Sticker image <input id="stickerImg" type="file" accept="image/*"/></label>
+        <label class="hint">Size <input id="imgSize" type="range" min="32" max="240" step="4" value="96"/></label>
+        <button id="clearSticker">Remove</button>
+      </div>
+      <div class="hint" style="margin-top:6px">Drag on the canvas to place your emoji or sticker.</div>
+    </div>
+
+    <div class="card">
+      <label>Date label</label>
+      <div class="row">
+        <label class="hint"><input id="showDate" type="checkbox" checked/> Show date</label>
+        <input id="dateText" type="text" placeholder="Custom label (optional)" style="flex:1"/>
+      </div>
+    </div>
+  </aside>
+
+  <script>
+    const preview = document.getElementById('preview');
+    const ctx = preview.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const ovCap = document.getElementById('ovCap');
+    const ovCount = document.getElementById('ovCount');
+
+    // Controls
+    const backBtn = document.getElementById('backBtn');
+    const exportPng = document.getElementById('exportPng');
+    const exportJpeg = document.getElementById('exportJpeg');
+    const importShotsBtn = document.getElementById('importShots');
+    const captureShotsBtn = document.getElementById('captureShots');
+    const useSyntheticBtn = document.getElementById('useSynthetic');
+    const styleSel = document.getElementById('style');
+    const bgColor = document.getElementById('bgColor');
+    const bgImage = document.getElementById('bgImage');
+    const spacing = document.getElementById('spacing');
+    const marginRange = document.getElementById('margin');
+    const filterSel = document.getElementById('filter');
+    const emojiInput = document.getElementById('emoji');
+    const emojiSize = document.getElementById('emojiSize');
+    const stickerImgInput = document.getElementById('stickerImg');
+    const imgSize = document.getElementById('imgSize');
+    const clearStickerBtn = document.getElementById('clearSticker');
+    const showDate = document.getElementById('showDate');
+    const dateText = document.getElementById('dateText');
+
+    // State
+    const filterMap = {none:'none', grayscale:'grayscale(100%)', sepia:'sepia(60%)', invert:'invert(100%)', vibrant:'saturate(140%) contrast(110%)', contrast:'contrast(130%) brightness(105%)', cool:'contrast(105%) saturate(110%) hue-rotate(200deg)', warm:'contrast(105%) saturate(110%) hue-rotate(-15deg)', blur:'blur(2px) saturate(105%)', bwFilm:'grayscale(100%) contrast(120%) brightness(95%)'};
+    let shots = [];
+    let videoStream = null; let videoEl = null; let synthetic = null;
+    let bgImageObj = null;
+    let sticker = {emoji:'', emojiSize:64, img:null, imgSize:96, x:380, y:90};
+    let dragging = false; let dragOffset = {x:0,y:0};
+
+    function readSession(){ try{ const s = JSON.parse(sessionStorage.getItem('booth.shots') || sessionStorage.getItem('flappy_shots') || '[]'); if(Array.isArray(s)) shots = s.slice(0,3); }catch(e){} }
+
+    function clearCanvas(c, w=preview.width, h=preview.height){ c.clearRect(0,0,w,h); }
+
+    function fitCoverDims(iw, ih, cw, ch){ const r = Math.min(cw/iw, ch/ih); return {w: iw*r, h: ih*r}; }
+
+    async function drawStrip(){
+      const w = preview.width, h = preview.height;
+      const style = styleSel.value;
+      const s = Number(spacing.value); const m = Number(marginRange.value);
+      const frameH = 320; const frameW = w - m*2;
+
+      clearCanvas(ctx);
+
+      // Background
+      if(style === 'classic'){ ctx.fillStyle = '#111'; }
+      else if(style === 'white'){ ctx.fillStyle = '#fff'; }
+      else if(style === 'pink'){ ctx.fillStyle = '#FFEBEB'; }
+      else if(style === 'film'){ const g = ctx.createLinearGradient(0,0,w,h); g.addColorStop(0,'#1f2937'); g.addColorStop(1,'#111827'); ctx.fillStyle = g; }
+      ctx.fillRect(0,0,w,h);
+
+      // Custom bg color or image inside panel
+      const panel = {x:10,y:10,w:w-20,h:h-20};
+      ctx.fillStyle = '#fff';
+      if(style==='classic' || style==='film') ctx.fillStyle = '#2b2b2b';
+      if(bgColor.value) ctx.fillStyle = bgColor.value;
+      ctx.fillRect(panel.x, panel.y, panel.w, panel.h);
+      if(bgImageObj){ const dims = fitCoverDims(bgImageObj.width, bgImageObj.height, panel.w, panel.h); const ix = panel.x + (panel.w - dims.w)/2; const iy = panel.y + (panel.h - dims.h)/2; ctx.globalAlpha = 0.15; ctx.drawImage(bgImageObj, ix, iy, dims.w, dims.h); ctx.globalAlpha = 1; }
+
+      // Frames
+      for(let i=0;i<3;i++){
+        const x = m, y = m + i*(frameH + s);
+        ctx.fillStyle = '#000'; ctx.fillRect(x-6, y-6, frameW+12, frameH+12);
+        const shot = shots[i] || shots[shots.length-1];
+        if(shot){ const img = await loadImage(shot); const dims = fitCoverDims(img.width, img.height, frameW, frameH); const ix = x + (frameW - dims.w)/2; const iy = y + (frameH - dims.h)/2; ctx.filter = filterMap[filterSel.value] || 'none'; ctx.drawImage(img, ix, iy, dims.w, dims.h); ctx.filter = 'none'; }
+        else { ctx.fillStyle = '#e5e7eb'; ctx.fillRect(x, y, frameW, frameH); }
+      }
+
+      // Sticker (emoji or image)
+      if(sticker.emoji){ ctx.font = `${sticker.emojiSize}px sans-serif`; ctx.fillStyle = (style==='classic' || style==='film') ? '#fff' : '#111'; ctx.fillText(sticker.emoji, sticker.x, sticker.y); }
+      if(sticker.img){ ctx.drawImage(sticker.img, sticker.x - sticker.imgSize/2, sticker.y - sticker.imgSize/2, sticker.imgSize, sticker.imgSize); }
+
+      // Date/footer
+      if(showDate.checked){ const label = (dateText.value || new Date().toLocaleDateString()); ctx.fillStyle = (style==='classic' || style==='film') ? '#fff' : '#111'; ctx.font = '20px sans-serif'; const tw = ctx.measureText(label).width; ctx.fillText(label, (w - tw)/2, h - 20); }
+    }
+
+    function downloadDataUrl(dataUrl, filename){ const a = document.createElement('a'); a.href = dataUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); }
+
+    async function exportImage(type){ await drawStrip(); const url = preview.toDataURL(type==='jpeg'?'image/jpeg':'image/png', 0.92); downloadDataUrl(url, `photostrip-${Date.now()}.${type==='jpeg'?'jpg':'png'}`); }
+
+    function startDragging(evt){ const rect = preview.getBoundingClientRect(); const x = evt.clientX - rect.left; const y = evt.clientY - rect.top; const hit = hitSticker(x, y); if(hit){ dragging = true; dragOffset.x = x - sticker.x; dragOffset.y = y - sticker.y; } }
+    function moveDragging(evt){ if(!dragging) return; const rect = preview.getBoundingClientRect(); sticker.x = evt.clientX - rect.left - dragOffset.x; sticker.y = evt.clientY - rect.top - dragOffset.y; drawStrip(); }
+    function endDragging(){ dragging = false; }
+    function hitSticker(x,y){ const r = Math.max(sticker.emojiSize||0, sticker.imgSize||0)/2 + 10; const dx = x - sticker.x; const dy = y - sticker.y; return (sticker.emoji||sticker.img) && (dx*dx + dy*dy) <= r*r; }
+
+    // Loaders
+    function loadImage(src){ return new Promise((resolve)=>{ const im = new Image(); im.onload=()=>resolve(im); im.onerror=()=>resolve(null); im.src=src; }); }
+
+    // Capture 3 shots with countdown
+    async function captureThreeShots(useSynthetic=false){
+      await ensureVideo(useSynthetic);
+      const v = videoEl; const seqCaps = ['Ready!','Here is another one!','Get ready for the last picture.'];
+      const tempCanvas = document.createElement('canvas'); tempCanvas.width = v.videoWidth || 640; tempCanvas.height = v.videoHeight || 480; const tctx = tempCanvas.getContext('2d');
+      shots = [];
+      for(let i=0;i<3;i++){
+        await countdown(3, seqCaps[i]);
+        tctx.filter = filterMap[filterSel.value] || 'none';
+        tctx.drawImage(v, 0, 0, tempCanvas.width, tempCanvas.height);
+        shots.push(tempCanvas.toDataURL('image/png'));
+        await new Promise(r=>setTimeout(r, 300));
+      }
+      stopVideo();
+      await drawStrip();
+    }
+
+    function showOverlay(msg, count){ overlay.style.display='flex'; ovCap.textContent = msg || ''; ovCount.textContent = count || ''; }
+    function hideOverlay(){ overlay.style.display='none'; ovCap.textContent=''; ovCount.textContent=''; }
+    async function countdown(n, caption){ for(let i=n;i>0;i--){ showOverlay(caption, i); await new Promise(r=>setTimeout(r,1000)); } hideOverlay(); }
+
+    async function ensureVideo(useSynthetic){
+      if(videoEl) return; videoEl = document.createElement('video'); videoEl.autoplay = true; videoEl.playsInline = true; videoEl.muted = true;
+      try{
+        if(useSynthetic){ startSynthetic(); return; }
+        videoStream = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}}});
+        videoEl.srcObject = videoStream; await videoEl.play();
+      }catch(e){ startSynthetic(); }
+    }
+    function startSynthetic(){ const c = document.createElement('canvas'); c.width=640; c.height=480; const cctx=c.getContext('2d'); let t=0; function draw(){ t+=0.03; const grd=cctx.createLinearGradient(0,0,c.width,c.height); grd.addColorStop(0,`hsl(${(t*40)%360} 80% 60%)`); grd.addColorStop(1,`hsl(${((t+0.6)*40)%360} 80% 50%)`); cctx.fillStyle=grd; cctx.fillRect(0,0,c.width,c.height); cctx.fillStyle='rgba(255,255,255,0.9)'; cctx.font='28px sans-serif'; cctx.fillText('Synthetic Camera',20,40); cctx.beginPath(); cctx.arc(320 + Math.cos(t*2)*100, 240 + Math.sin(t*3)*60, 36, 0, Math.PI*2); cctx.fill(); requestAnimationFrame(draw);} draw(); const s = c.captureStream(25); videoStream = s; videoEl.srcObject = s; videoEl.play().catch(()=>{}); }
+    function stopVideo(){ try{ if(videoStream) videoStream.getTracks().forEach(t=>t.stop()); }catch(e){} videoStream=null; videoEl=null; }
+
+    // Events
+    backBtn.addEventListener('click', ()=>{ window.location.href = 'flappy.html'; });
+    exportPng.addEventListener('click', ()=> exportImage('png'));
+    exportJpeg.addEventListener('click', ()=> exportImage('jpeg'));
+    importShotsBtn.addEventListener('click', async ()=>{ readSession(); await drawStrip(); });
+    captureShotsBtn.addEventListener('click', ()=> captureThreeShots(false));
+    useSyntheticBtn.addEventListener('click', ()=> captureThreeShots(true));
+
+    ;[styleSel,bgColor,spacing,marginRange,filterSel,emojiInput,emojiSize,imgSize,showDate,dateText].forEach(el=> el.addEventListener('input', drawStrip));
+    bgImage.addEventListener('change', async ()=>{ const f = bgImage.files && bgImage.files[0]; if(!f){ bgImageObj=null; return drawStrip(); } const url = URL.createObjectURL(f); bgImageObj = await loadImage(url); URL.revokeObjectURL(url); drawStrip(); });
+    stickerImgInput.addEventListener('change', async ()=>{ const f = stickerImgInput.files && stickerImgInput.files[0]; sticker.img = f? await loadImage(URL.createObjectURL(f)) : null; drawStrip(); });
+    clearStickerBtn.addEventListener('click', ()=>{ sticker = {emoji:'', emojiSize:64, img:null, imgSize:96, x:380, y:90}; emojiInput.value=''; stickerImgInput.value=''; drawStrip(); });
+    emojiInput.addEventListener('input', ()=>{ sticker.emoji = emojiInput.value || ''; drawStrip(); });
+    emojiSize.addEventListener('input', ()=>{ sticker.emojiSize = Number(emojiSize.value); drawStrip(); });
+    imgSize.addEventListener('input', ()=>{ sticker.imgSize = Number(imgSize.value); drawStrip(); });
+
+    // Dragging sticker
+    preview.addEventListener('mousedown', startDragging);
+    window.addEventListener('mousemove', moveDragging);
+    window.addEventListener('mouseup', endDragging);
+
+    // Init
+    readSession();
+    drawStrip();
+  </script>
+</body>
+</html> 

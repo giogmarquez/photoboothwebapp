@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Web Photo Booth — Resilient</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%237c3aed'/%3E%3C/svg%3E">
+  <style>
+    :root{--bg:#071023;--card:#0b1220;--accent:#7c3aed;--muted:#94a3b8}
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#ffffff 0%, #FFEBEB 100%);color:#374151;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:16px;padding:18px}
+    .container{width:min(980px,100%);background:#fff;border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,0.08);display:grid;grid-template-columns:1fr 320px;gap:18px}
+    @media (max-width:880px){.container{grid-template-columns:1fr}}
+    header h1{font-size:18px;margin:0;color:#eE7C99}
+    header p{margin:0;color:var(--muted);font-size:13px}
+    .stage{background:#fff;padding:12px;border-radius:12px;display:flex;flex-direction:column;gap:12px;align-items:center;border:1px solid #ffeBEB}
+    .preview{width:100%;max-width:100%;aspect-ratio:16/10;background:#ffeBEB;border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative}
+    video{width:100%;height:100%;object-fit:cover;display:block;transform:scaleX(-1)}
+    canvas{display:none}
+    .overlay{position:absolute;inset:0;background:rgba(255,235,235,0.35);display:flex;align-items:center;justify-content:center}
+    .overlay-caption{font-size:22px;color:#EE7C99;margin-bottom:6px}
+    .overlay-count{font-size:56px;color:#EE7C99;font-weight:700}
+    .controls{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+    button, select, input[type="checkbox"]{background:#fff;border:1px solid #ffd6d6;padding:8px 10px;border-radius:10px;color:#6b7280;cursor:pointer}
+    button.primary{background:#EE7C99;border:0;color:#fff}
+    .sidebar{display:flex;flex-direction:column;gap:12px}
+    .card{background:#fff;padding:14px;border-radius:12px;border:1px solid #ffeBEB}
+    label{font-size:13px;color:#9ca3af;display:block;margin-bottom:6px}
+    .filters{display:flex;gap:8px;flex-wrap:wrap}
+    .filter-btn{padding:6px 8px;border-radius:10px;border:1px solid #ffd6d6;font-size:13px;background:#fff;color:#6b7280}
+    .captures-wrap{width:min(980px,100%);background:#fff;border:1px solid #ffeBEB;border-radius:16px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,0.05)}
+    .captures-header{display:flex;justify-content:space-between;align-items:center;font-weight:600;color:#EE7C99;margin-bottom:10px}
+    .captures-actions{display:flex;gap:8px}
+    .captures-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;align-items:start}
+    .thumb{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:12px;background:#fff;border:1px solid #ffeBEB;position:relative}
+    .thumb img{width:100%;height:140px;object-fit:cover;border-radius:10px;cursor:pointer}
+    .thumb .select{position:absolute;top:10px;left:10px;background:#fff;border:1px solid #ffd6d6;width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center}
+    .thumb .meta{display:flex;justify-content:space-between;align-items:center;width:100%}
+    .viewer{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:1000}
+    .viewer img{max-width:70vw;max-height:70vh;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.35);background:#fff}
+    .viewer-btn{position:absolute;background:#fff;border:1px solid #ffd6d6;border-radius:8px;padding:6px 10px;color:#6b7280;cursor:pointer}
+    .viewer-btn.close{top:16px;right:16px}
+    .viewer-btn.prev{left:16px}
+    .viewer-btn.next{right:16px}
+    .small{font-size:12px;color:#9ca3af}
+    .status{font-size:13px;color:#9ca3af;text-align:center}
+    .notice{display:none}
+    pre.diagnostics{display:none}
+    .f-none{filter:none}.f-grayscale{filter:grayscale(100%)}.f-sepia{filter:sepia(60%)}.f-invert{filter:invert(100%)}.f-vibrant{filter:saturate(140%) contrast(110%)}.f-contrast{filter:contrast(130%) brightness(105%)}.f-cool{filter:contrast(105%) saturate(110%) hue-rotate(200deg)}.f-warm{filter:contrast(105%) saturate(110%) hue-rotate(-15deg)}.f-blur{filter:blur(2px) saturate(105%)}.f-bwFilm{filter:grayscale(100%) contrast(120%) brightness(95%)}
+    .shutter{width:54px;height:54px;border-radius:50%;border:4px solid #EE7C99;background:radial-gradient(circle at 50% 50%, #fff 0%, #fff 60%, #ffeBEB 100%); position:relative}
+    .shutter::after{content:'';position:absolute;inset:7px;border-radius:50%;border:2px solid #ffd6d6}
+
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div>
+      <header>
+        <div>
+          <h1>Web Photo Booth</h1>
+          <p>Robust webcam app — start camera on user gesture, recover from common failures, and test with synthetic input.</p>
+        </div>
+      </header>
+
+      <section class="stage">
+        <div class="preview" id="previewWrap">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="canvas"></canvas>
+          <div id="boothOverlay" class="overlay" style="display:none">
+            <div style="text-align:center">
+              <div id="boothCaption" class="overlay-caption"></div>
+              <div id="boothCount" class="overlay-count"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="startBtn" class="primary">Start Camera</button>
+          <select id="deviceSelect" title="Camera source" disabled></select>
+          <button id="takeBtn" class="shutter" aria-label="Take Photo" disabled></button>
+          <button id="downloadPng" disabled>Download PNG</button>
+          <button id="downloadJpeg" disabled>Download JPEG</button>
+          <button id="virtualBtn">Use Synthetic Camera</button>
+        </div>
+
+        <div class="status" id="status">Click <strong>Start Camera</strong> to request camera access.</div>
+      </section>
+    </div>
+
+    <aside class="sidebar">
+      <div class="card">
+        <label>Filters</label>
+        <div class="filters" id="filters">
+          <button class="filter-btn" data-filter="none">None</button>
+          <button class="filter-btn" data-filter="grayscale">Grayscale</button>
+          <button class="filter-btn" data-filter="sepia">Sepia</button>
+          <button class="filter-btn" data-filter="invert">Invert</button>
+          <button class="filter-btn" data-filter="vibrant">Vibrant</button>
+          <button class="filter-btn" data-filter="contrast">High Contrast</button>
+          <button class="filter-btn" data-filter="cool">Cool</button>
+          <button class="filter-btn" data-filter="warm">Warm</button>
+          <button class="filter-btn" data-filter="blur">Soft Blur</button>
+          <button class="filter-btn" data-filter="bwFilm">B&W Film</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <label>Quick tests</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="sampleBtn" class="filter-btn">Use sample photo</button>
+          <button id="clearBtn" class="filter-btn">Clear captures</button>
+          <button id="openBooth" class="filter-btn">Open Photobooth</button>
+        </div>
+        <div style="margin-top:8px"><label><input id="mirrorSave" type="checkbox"/> Save images mirrored (match preview)</label></div>
+      </div>
+
+      <div class="card">
+        <label>Photo Booth</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button id="boothStart" class="filter-btn">Start 3-shot booth</button>
+          <span class="small">Takes 3 photos with a 3s countdown and captions.</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+          <div>
+            <label class="small">Photostrip style</label>
+            <select id="boothStyle" style="width:100%">
+              <option value="classic">Classic black</option>
+              <option value="white">Clean white</option>
+              <option value="pink">Pink</option>
+              <option value="film">Film</option>
+            </select>
+          </div>
+          <div>
+            <label class="small">Sticker</label>
+            <select id="boothSticker" style="width:100%">
+              <option value="none">None</option>
+              <option value="⭐️">⭐️ Star</option>
+              <option value="❤️">❤️ Heart</option>
+              <option value="🎉">🎉 Confetti</option>
+              <option value="😎">😎 Cool</option>
+            </select>
+          </div>
+          <div style="grid-column:1/-1">
+            <label class="small"><input id="boothShowDate" type="checkbox" checked/> Show date on strip</label>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="captures-wrap">
+    <div class="captures-header">
+      <span>Captured Photos</span>
+      <div class="captures-actions">
+        <button id="downloadSelectedBtn" class="filter-btn" disabled>Select</button>
+        <button id="confirmDownloadBtn" class="filter-btn" style="display:none" disabled>Download</button>
+        <button id="deleteSelectedBtn" class="filter-btn" style="display:none" disabled>Delete</button>
+        <button id="selectAllBtn" class="filter-btn" style="display:none" disabled>Select all</button>
+        <button id="cancelSelectBtn" class="filter-btn" style="display:none" disabled>Back</button>
+      </div>
+    </div>
+    <div id="captures" class="captures-grid">
+      <div class="small">No photos yet — use the camera or the sample/virtual camera above.</div>
+    </div>
+  </div>
+
+  <div id="viewer" class="viewer" style="display:none">
+    <button id="viewerClose" class="viewer-btn close" aria-label="Close">✕</button>
+    <button id="viewerPrev" class="viewer-btn prev" aria-label="Previous">‹</button>
+    <img id="viewerImg" alt="Preview" />
+    <button id="viewerNext" class="viewer-btn next" aria-label="Next">›</button>
+  </div>
+
+  <script>
+    // New robust implementation that attempts recovery strategies for getUserMedia failures.
+    // It also includes test cases: sample photo, synthetic camera, and "simulate error" to exercise error handling.
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const startBtn = document.getElementById('startBtn');
+    const deviceSelect = document.getElementById('deviceSelect');
+    const takeBtn = document.getElementById('takeBtn');
+    const downloadPng = document.getElementById('downloadPng');
+    const downloadJpeg = document.getElementById('downloadJpeg');
+    const virtualBtn = document.getElementById('virtualBtn');
+    const status = document.getElementById('status');
+    const permissionHints = document.getElementById('permissionHints');
+    const diagnostics = document.getElementById('diagnostics');
+    const captures = document.getElementById('captures');
+    const filtersWrap = document.getElementById('filters');
+    const previewWrap = document.getElementById('previewWrap');
+    const sampleBtn = document.getElementById('sampleBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const openBoothBtn = document.getElementById('openBooth');
+    const diagBtn = null;
+    const mirrorSave = document.getElementById('mirrorSave');
+    const simulateSelect = null;
+    const simulateBtn = null;
+    const runTestsBtn = null;
+
+    const boothStart = document.getElementById('boothStart');
+    const boothOverlay = document.getElementById('boothOverlay');
+    const boothCaption = document.getElementById('boothCaption');
+    const boothCount = document.getElementById('boothCount');
+    let boothRunning = false;
+
+    let currentFilter = 'none';
+    let stream = null;
+    let lastDataUrl = null;
+    let synthetic = null; // {stream, canvas, raf}
+
+    function supportsGetUserMedia(){
+      return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function extractErrorDetails(err){
+      if(!err) return {name:'UnknownError', message:'No error information available'};
+      return {
+        name: err.name || (err.constructor && err.constructor.name) || 'Error',
+        message: err.message || String(err),
+        stack: err.stack || null,
+        constraint: err.constraint || err.constraintName || null,
+        code: err.code || null
+      };
+    }
+
+    function showDiagnostics(obj){
+      if(!diagnostics) return;
+      diagnostics.style.display = 'block';
+      try{ diagnostics.textContent = JSON.stringify(obj, Object.getOwnPropertyNames(obj), 2); }
+      catch(e){ diagnostics.textContent = String(obj); }
+    }
+
+    function clearDiagnostics(){
+      if(!diagnostics) return;
+      diagnostics.style.display='none';
+      diagnostics.textContent='';
+    }
+
+    function setStatus(msg){ status.innerHTML = msg; }
+
+    function setCameraRunning(running){
+      if(running){
+        startBtn.textContent = 'Stop Camera'; startBtn.classList.add('primary'); startBtn.dataset.running='true';
+        takeBtn.disabled = false; deviceSelect.disabled = false; virtualBtn.disabled = false;
+      } else {
+        startBtn.textContent = 'Start Camera'; startBtn.classList.remove('primary'); delete startBtn.dataset.running;
+        takeBtn.disabled = false; deviceSelect.disabled = false; virtualBtn.disabled = false;
+      }
+    }
+
+    // Primary camera starter — attempts a sequence of fallbacks when errors occur.
+    async function startCamera({deviceId=null, useSynthetic=false, attempt=0} = {}){
+      clearDiagnostics(); if (permissionHints) permissionHints.style.display='none';
+
+      if(useSynthetic){
+        startSyntheticCamera();
+        return;
+      }
+
+      if(!supportsGetUserMedia()){
+        setStatus('Camera not supported in this browser. Use Chrome/Edge on localhost/https. Synthetic camera still works.');
+        return;
+      }
+
+      // Stop any previous stream we own
+      stopStream();
+
+      // Build permissive constraints first to avoid overconstraining
+      let constraints = {video:{width:{ideal:1280}, height:{ideal:720}}};
+      if(deviceId && deviceId !== 'default'){
+        // use ideal before exact to be more tolerant
+        constraints = {video:{deviceId:{ideal:deviceId}, width:{ideal:1280}, height:{ideal:720}}};
+      }
+
+      setStatus('Requesting camera permission...');
+
+      try{
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        try{ await video.play(); }catch(e){}
+        setStatus('Camera ready.');
+        setCameraRunning(true);
+        await populateDeviceList();
+        return;
+      }catch(err){
+        const details = extractErrorDetails(err);
+        console.warn('getUserMedia failed:', details);
+        showDiagnostics(details);
+
+        // Recovery strategies based on error type
+        if(details.name === 'NotReadableError'){
+          // Device might be in use. Try retries, then attempt other devices.
+          if(attempt < 2){
+            setStatus('Device busy — retrying shortly... (attempt ' + (attempt+1) + ')');
+            await sleep(1200 * (attempt+1));
+            return startCamera({deviceId, useSynthetic, attempt: attempt+1});
+          }
+          // After a few retries, try other available devices
+          setStatus('Device appears busy. Trying other available cameras...');
+          const tried = await tryOtherDevices();
+          if(!tried){
+            // give user actions
+            handleGetUserMediaError(details, {allowSynthetic:true});
+          }
+          return;
+        }
+
+        if(details.name === 'NotAllowedError' || details.name === 'PermissionDeniedError'){
+          handleGetUserMediaError(details, {allowSynthetic:true});
+          return;
+        }
+
+        if(details.name === 'OverconstrainedError' || details.name === 'NotFoundError'){
+          // try with default constraints (no deviceId)
+          if(deviceId){
+            setStatus('No matching device for constraints. Trying default camera...');
+            return startCamera({deviceId:null, useSynthetic:false, attempt: attempt+1});
+          }
+          handleGetUserMediaError(details, {allowSynthetic:true});
+          return;
+        }
+
+        // fallback: show helpful info and allow synthetic
+        handleGetUserMediaError(details, {allowSynthetic:true});
+      }
+    }
+
+    function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+
+    async function waitForVideoReady(timeoutMs = 1500){
+      const start = Date.now();
+      while(Date.now() - start < timeoutMs){
+        if(video && video.videoWidth > 0 && video.videoHeight > 0){
+          return true;
+        }
+        await sleep(100);
+      }
+      return false;
+    }
+
+    function stopStream(){
+      // stop synthetic if present
+      if(synthetic){
+        try{ if(synthetic.raf) cancelAnimationFrame(synthetic.raf); }catch(e){}
+        try{ if(synthetic.stream) synthetic.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+        try{ if(synthetic.canvas) synthetic.canvas.remove(); }catch(e){}
+        synthetic = null;
+      }
+
+      if(stream){
+        try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+        stream = null;
+      }
+      video.srcObject = null;
+      setCameraRunning(false);
+      setStatus('Camera stopped.');
+    }
+
+    // Try to open other devices sequentially — returns true if succeeded
+    async function tryOtherDevices(){
+      if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return false;
+      try{
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        for(const d of videoInputs){
+          try{
+            setStatus('Trying camera: ' + (d.label || d.deviceId || 'unknown'));
+            const s = await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:d.deviceId}}});
+            // success
+            stream = s; video.srcObject = stream; try{ await video.play(); }catch(e){}
+            setStatus('Camera ready (switched device).'); setCameraRunning(true); await populateDeviceList(); return true;
+          }catch(e){
+            console.warn('Device failed', d.deviceId, e);
+            continue;
+          }
+        }
+      }catch(e){ console.warn('enumerateDevices failed', e); }
+      return false;
+    }
+
+    function handleGetUserMediaError(details, {allowSynthetic=false} = {}){
+      setStatus('<strong>getUserMedia error</strong>: ' + (details.name || 'Error'));
+      if (permissionHints) permissionHints.style.display = 'block';
+
+      let html = '<strong>Possible fixes</strong>:<ul style="margin:6px 0 6px 18px">';
+      html += '<li>Close other programs (Zoom, Teams, OBS) that may be using the camera.</li>';
+      html += '<li>Close other browser tabs using the camera.</li>';
+      html += '<li>Check OS privacy settings (Windows/macOS) to allow camera access for this browser.</li>';
+      html += '<li>Reload the page and click <em>Start Camera</em> again.</li>';
+      html += '<li>Serve the page over <strong>https</strong> or open it on <strong>localhost</strong>.</li>';
+      html += '</ul>';
+
+      if(details.name === 'NotReadableError'){
+        html += '<div style="margin-top:6px">The camera appears to be in use by another application. You can try:<div style="margin-top:6px"><button id="attemptRecover" class="filter-btn">Try other cameras</button> <button id="useSyntheticNR" class="filter-btn">Use Synthetic Camera</button></div></div>';
+      } else if(details.name === 'NotAllowedError'){
+        html += '<div style="margin-top:6px">Permission was denied. Check the browser address bar (camera icon) to re-enable access, then click <button id="retryPerm" class="filter-btn">Retry</button>.</div>';
+      } else {
+        html += '<div style="margin-top:6px">You can try the synthetic camera for testing: <button id="useSyntheticOther" class="filter-btn">Use Synthetic Camera</button></div>';
+      }
+
+      // show diagnostics
+      html += '<details style="margin-top:8px;color:#cfe9ff"><summary style="cursor:pointer">Diagnostics</summary><pre style="white-space:pre-wrap;margin-top:8px">' + (details.message || '') + '\n' + (details.stack || '') + '</pre></details>';
+
+      if (permissionHints) permissionHints.innerHTML = html;
+      showDiagnostics(details);
+
+      // attach handlers
+      const attemptRecover = document.getElementById('attemptRecover'); if(attemptRecover) attemptRecover.addEventListener('click', async ()=>{ if(permissionHints) permissionHints.style.display='none'; setStatus('Trying other cameras...'); const ok = await tryOtherDevices(); if(!ok) setStatus('No other camera could be opened. Consider closing other apps.'); });
+      const useSyntheticNR = document.getElementById('useSyntheticNR'); if(useSyntheticNR) useSyntheticNR.addEventListener('click', ()=>{ if(permissionHints) permissionHints.style.display='none'; startSyntheticCamera(); });
+      const retryPerm = document.getElementById('retryPerm'); if(retryPerm) retryPerm.addEventListener('click', ()=>{ if(permissionHints) permissionHints.style.display='none'; startCamera({deviceId:'default'}); });
+      const useSyntheticOther = document.getElementById('useSyntheticOther'); if(useSyntheticOther) useSyntheticOther.addEventListener('click', ()=>{ if(permissionHints) permissionHints.style.display='none'; startSyntheticCamera(); });
+    }
+
+    async function populateDeviceList(){
+      if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+      try{
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        deviceSelect.innerHTML = '';
+        const defaultOpt = document.createElement('option'); defaultOpt.value = 'default'; defaultOpt.textContent = 'Default camera'; deviceSelect.appendChild(defaultOpt);
+        const syntheticOpt = document.createElement('option'); syntheticOpt.value = 'synthetic'; syntheticOpt.textContent = 'Synthetic camera'; deviceSelect.appendChild(syntheticOpt);
+        videoInputs.forEach((d,i)=>{ const opt = document.createElement('option'); opt.value = d.deviceId; opt.textContent = d.label || `Camera ${i+1}`; deviceSelect.appendChild(opt); });
+        deviceSelect.disabled = false;
+      }catch(e){ console.warn('enumerateDevices failed', e); }
+    }
+
+    // Synthetic camera (fallback/test)
+    function startSyntheticCamera(){
+      stopStream();
+      const cvs = document.createElement('canvas'); cvs.width = 640; cvs.height = 480; cvs.style.display='none'; document.body.appendChild(cvs);
+      const ctx = cvs.getContext('2d');
+      let t = 0, raf = null;
+      function draw(){
+        t += 0.03;
+        const grd = ctx.createLinearGradient(0,0,cvs.width,cvs.height);
+        grd.addColorStop(0, `hsl(${(t*40)%360} 80% 60%)`);
+        grd.addColorStop(1, `hsl(${((t+0.6)*40)%360} 80% 50%)`);
+        ctx.fillStyle = grd; ctx.fillRect(0,0,cvs.width,cvs.height);
+        ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '28px sans-serif'; ctx.fillText('Synthetic Camera (test)', 20, 40);
+        ctx.beginPath(); ctx.arc(320 + Math.cos(t*2)*100, 240 + Math.sin(t*3)*60, 36, 0, Math.PI*2); ctx.fill();
+        raf = requestAnimationFrame(draw);
+      }
+      draw();
+      const s = (cvs.captureStream) ? cvs.captureStream(25) : null;
+      if(!s){ cancelAnimationFrame(raf); const dataUrl = cvs.toDataURL('image/png'); lastDataUrl = dataUrl; addCaptureThumb(dataUrl); setStatus('Synthetic capture not supported — sample image created.'); return; }
+      synthetic = {stream: s, canvas: cvs, raf}; stream = s; video.srcObject = stream; video.play().catch(()=>{}); setStatus('Synthetic camera running.'); setCameraRunning(true); populateDeviceList();
+    }
+
+    function resizeCanvasToVideo(){
+      const w = (video && video.videoWidth) ? video.videoWidth : 640;
+      const h = (video && video.videoHeight) ? video.videoHeight : 480;
+      canvas.width = w; canvas.height = h; canvas.style.display='none';
+    }
+
+    function captureFrame(){
+      resizeCanvasToVideo();
+      const ctx = canvas.getContext('2d');
+      const filterMap = {none:'none', grayscale:'grayscale(100%)', sepia:'sepia(60%)', invert:'invert(100%)', vibrant:'saturate(140%) contrast(110%)', contrast:'contrast(130%) brightness(105%)', cool:'contrast(105%) saturate(110%) hue-rotate(200deg)', warm:'contrast(105%) saturate(110%) hue-rotate(-15deg)', blur:'blur(2px) saturate(105%)', bwFilm:'grayscale(100%) contrast(120%) brightness(95%)'};
+      ctx.filter = filterMap[currentFilter] || 'none';
+      if(mirrorSave.checked){ ctx.save(); ctx.scale(-1,1); ctx.translate(-canvas.width,0); ctx.drawImage(video, 0, 0, canvas.width, canvas.height); ctx.restore(); }
+      else ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/png'); lastDataUrl = dataUrl; addCaptureThumb(dataUrl); downloadPng.disabled=false; downloadJpeg.disabled=false; setStatus('Photo captured.');
+    }
+
+    function addCaptureThumb(dataUrl){
+      const wrapper = document.createElement('div');
+      wrapper.className='thumb';
+      wrapper.dataset.selected = 'false';
+
+      const sel = document.createElement('input');
+      sel.type = 'checkbox';
+      sel.className = 'select';
+      sel.style.display = 'none';
+      sel.addEventListener('change', ()=>{
+        wrapper.dataset.selected = sel.checked ? 'true' : 'false';
+        updateCaptureActionsState();
+      });
+      wrapper.appendChild(sel);
+
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.addEventListener('click', ()=> openViewerFromElement(img));
+      const meta = document.createElement('div'); meta.className='meta';
+      const time = document.createElement('div'); time.textContent = new Date().toLocaleString(); time.className='small';
+      const btns = document.createElement('div'); btns.style.display='flex'; btns.style.gap='6px';
+      const dlP = document.createElement('button'); dlP.textContent='PNG'; dlP.className='filter-btn'; dlP.addEventListener('click', ()=> downloadDataUrl(dataUrl, `photo-${Date.now()}.png`));
+      const dlJ = document.createElement('button'); dlJ.textContent='JPEG'; dlJ.className='filter-btn'; dlJ.addEventListener('click', async ()=>{ const jpeg = await convertDataUrlToJpeg(dataUrl,0.92); downloadDataUrl(jpeg, `photo-${Date.now()}.jpg`); });
+      btns.appendChild(dlP); btns.appendChild(dlJ); meta.appendChild(time); meta.appendChild(btns); wrapper.appendChild(img); wrapper.appendChild(meta);
+      const firstEl = captures.firstElementChild;
+      if(firstEl && firstEl.classList && !firstEl.classList.contains('small')){
+        captures.insertBefore(wrapper, firstEl);
+      } else {
+        captures.textContent = '';
+        captures.appendChild(wrapper);
+      }
+      updateCaptureActionsState();
+    }
+
+    function getAllCaptureDataUrls(){
+      return Array.from(captures.querySelectorAll('.thumb img')).map(img => img.src).filter(Boolean);
+    }
+
+    function getSelectedCaptureDataUrls(){
+      return Array.from(captures.querySelectorAll('.thumb')).filter(t => t.dataset.selected === 'true').map(t => t.querySelector('img')?.src).filter(Boolean);
+    }
+
+    function setSelectionMode(on){
+      const checkboxes = Array.from(captures.querySelectorAll('.thumb .select'));
+      checkboxes.forEach(cb=>{ cb.style.display = on ? 'flex' : 'none'; if(!on){ cb.checked=false; cb.parentElement.dataset.selected='false'; }});
+      const confirmBtn = document.getElementById('confirmDownloadBtn');
+      const deleteSelBtn = document.getElementById('deleteSelectedBtn');
+      const selectAllBtn = document.getElementById('selectAllBtn');
+      const cancelSelectBtn = document.getElementById('cancelSelectBtn');
+      const startBtnSel = document.getElementById('downloadSelectedBtn');
+      if(confirmBtn) confirmBtn.style.display = on ? '' : 'none';
+      if(deleteSelBtn) deleteSelBtn.style.display = on ? '' : 'none';
+      if(selectAllBtn) selectAllBtn.style.display = on ? '' : 'none';
+      if(cancelSelectBtn) cancelSelectBtn.style.display = on ? '' : 'none';
+      if(startBtnSel) startBtnSel.style.display = on ? 'none' : '';
+      updateCaptureActionsState();
+    }
+
+    function deleteSelected(){
+      const selected = Array.from(captures.querySelectorAll('.thumb')).filter(t => t.dataset.selected==='true');
+      selected.forEach(t=> t.remove());
+      if(!captures.querySelector('.thumb')){ captures.innerHTML = '<div class="small">No photos yet — use the camera or the sample/virtual camera above.</div>'; }
+      updateCaptureActionsState();
+    }
+
+    function updateCaptureActionsState(){
+      const allBtn = document.getElementById('downloadAllBtn');
+      const selBtn = document.getElementById('confirmDownloadBtn');
+      const delSelBtn = document.getElementById('deleteSelectedBtn');
+      const startSelBtn = document.getElementById('downloadSelectedBtn');
+      const selAllBtn = document.getElementById('selectAllBtn');
+      const cancelSelectBtn = document.getElementById('cancelSelectBtn');
+      const hasAny = getAllCaptureDataUrls().length > 0;
+      const hasSelected = getSelectedCaptureDataUrls().length > 0;
+        if(allBtn) allBtn.disabled = !hasAny;
+  if(startSelBtn) startSelBtn.disabled = !hasAny;
+  if(selBtn) selBtn.disabled = !hasSelected;
+  if(delSelBtn) delSelBtn.disabled = !hasSelected;
+  if(selAllBtn) selAllBtn.disabled = !hasAny;
+  if(cancelSelectBtn) cancelSelectBtn.disabled = !hasAny;
+    }
+
+    function downloadDataUrl(dataUrl, filename){ if(!dataUrl) return; if(dataUrl && typeof dataUrl.then==='function'){ dataUrl.then(r=>downloadDataUrl(r, filename)); return; } const a = document.createElement('a'); a.href = dataUrl; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); }
+
+    function convertDataUrlToJpeg(pngDataUrl, quality=0.92){ return new Promise((resolve)=>{ const img = new Image(); img.onload = ()=>{ const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height; const ctx = cv.getContext('2d'); ctx.drawImage(img,0,0); resolve(cv.toDataURL('image/jpeg', quality)); }; img.onerror = ()=> resolve(pngDataUrl); img.src = pngDataUrl; }); }
+
+    // Events wiring
+    startBtn.addEventListener('click', ()=>{
+      if(startBtn.dataset.running){
+        stopStream();
+      } else {
+        const selected = deviceSelect.value;
+        if(selected === 'synthetic' || (!window.isSecureContext && selected === 'default')){
+          startCamera({useSynthetic:true});
+        } else {
+          startCamera({deviceId: selected || null});
+        }
+      }
+    });
+    deviceSelect.addEventListener('change', ()=>{ const v = deviceSelect.value; if(v==='synthetic') startCamera({useSynthetic:true}); else if(startBtn.dataset.running) startCamera({deviceId: v==='default'? null: v}); });
+    virtualBtn.addEventListener('click', ()=> startCamera({useSynthetic:true}));
+    takeBtn.addEventListener('click', async ()=>{
+      if(!stream && !synthetic){
+        setStatus('Starting synthetic camera to capture...');
+        startSyntheticCamera();
+        await waitForVideoReady(3000);
+      }
+      if(stream || synthetic){
+        captureFrame();
+      } else {
+        setStatus('Using sample image as a fallback.');
+        sampleBtn.click();
+      }
+    });
+    downloadPng.addEventListener('click', ()=>{ if(!lastDataUrl) return; downloadDataUrl(lastDataUrl, `photo-${Date.now()}.png`); });
+    downloadJpeg.addEventListener('click', async ()=>{ if(!lastDataUrl) return; const jpeg = await convertDataUrlToJpeg(lastDataUrl,0.92); downloadDataUrl(jpeg, `photo-${Date.now()}.jpg`); });
+    filtersWrap.addEventListener('click', (e)=>{ const btn = e.target.closest('[data-filter]'); if(!btn) return; const f = btn.dataset.filter; currentFilter = f; previewWrap.classList.remove('f-none','f-grayscale','f-sepia','f-invert','f-vibrant','f-contrast','f-cool','f-warm','f-blur','f-bwFilm'); previewWrap.classList.add(f==='none'?'f-none':'f-'+f); Array.from(filtersWrap.querySelectorAll('button')).forEach(b=>b.style.outline=''); btn.style.outline='2px solid rgba(238,124,153,0.35)'; });
+
+    const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
+    const confirmDownloadBtn = document.getElementById('confirmDownloadBtn');
+    const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const cancelSelectBtn = document.getElementById('cancelSelectBtn');
+
+    if(downloadSelectedBtn){
+      downloadSelectedBtn.addEventListener('click', ()=> setSelectionMode(true));
+    }
+    if(confirmDownloadBtn){
+      confirmDownloadBtn.addEventListener('click', async ()=>{
+        const urls = getSelectedCaptureDataUrls();
+        if(urls.length === 0) return;
+        for(const [i, url] of urls.entries()){
+          const ext = url.startsWith('data:image/png') ? 'png' : 'jpg';
+          downloadDataUrl(url, `photo-${Date.now()}-${i+1}.${ext}`);
+          await sleep(50);
+        }
+        setSelectionMode(false);
+      });
+    }
+    if(deleteSelectedBtn){
+      deleteSelectedBtn.addEventListener('click', ()=>{ deleteSelected(); setSelectionMode(false); });
+    }
+    if(selectAllBtn){
+      selectAllBtn.addEventListener('click', ()=>{
+        Array.from(captures.querySelectorAll('.thumb .select')).forEach(cb=>{ cb.checked=true; cb.dispatchEvent(new Event('change')); });
+      });
+    }
+    if(cancelSelectBtn){
+      cancelSelectBtn.addEventListener('click', ()=> setSelectionMode(false));
+    }
+
+    sampleBtn.addEventListener('click', ()=>{ const ctx = canvas.getContext('2d'); canvas.width = 1280; canvas.height = 800; const g = ctx.createLinearGradient(0,0,canvas.width,canvas.height); g.addColorStop(0,'#7c3aed'); g.addColorStop(1,'#06b6d4'); ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font='72px sans-serif'; ctx.fillText('Sample Photo',60,140); ctx.font='28px sans-serif'; ctx.fillText(new Date().toLocaleString(),60,190); const dataUrl = canvas.toDataURL('image/png'); lastDataUrl = dataUrl; addCaptureThumb(dataUrl); downloadPng.disabled=false; downloadJpeg.disabled=false; setStatus('Sample photo ready.'); });
+
+    clearBtn.addEventListener('click', ()=>{ captures.innerHTML = '<div class="small">No photos yet — use the camera or the sample/virtual camera below.</div>'; lastDataUrl=null; downloadPng.disabled=true; downloadJpeg.disabled=true; setStatus('Cleared captures.'); clearDiagnostics(); updateCaptureActionsState(); });
+
+    // Diagnostics button runs a harmless set of checks and optionally asks the user to try permission prompt
+    // diagnostics removed from UI
+
+
+    // Simulation helpers (test cases): allow the user to simulate different error types without touching the camera
+    // simulation removed from UI
+
+    // Run test suite: sample image, synthetic camera, simulated errors
+    // tests removed from UI
+
+    // Initialization
+          (function init(){
+        deviceSelect.innerHTML = '<option value="default">Default camera</option><option value="synthetic">Synthetic camera</option>';
+        deviceSelect.disabled = false; setCameraRunning(false);
+        const firstBtn = filtersWrap.querySelector('[data-filter]'); if(firstBtn) firstBtn.style.outline='2px solid rgba(238,124,153,0.35)';
+        if(!window.isSecureContext){
+          try { deviceSelect.value = 'synthetic'; setStatus('Using Synthetic camera by default (non-secure context).'); } catch(e){}
+        }
+        window.addEventListener('beforeunload', stopStream);
+      })();
+
+    async function runBooth(){
+      if(boothRunning) return; boothRunning = true;
+      try{
+        if(!stream && !synthetic){
+          await startCamera({deviceId: deviceSelect.value || null});
+          if(!stream && !synthetic){ startSyntheticCamera(); await waitForVideoReady(2000); }
+        }
+        const captions = ['Ready!','Here is another one!','Get ready for the last picture.'];
+        const shots = [];
+        for(let i=0;i<3;i++){
+          await countdownWithCaption(3, captions[i]);
+          const dataUrl = captureToDataUrl();
+          shots.push(dataUrl);
+          await sleep(350);
+        }
+        await composePhotostrip(shots);
+      } finally {
+        boothRunning = false; hideBoothOverlay();
+      }
+    }
+
+    function showBoothOverlay(){ if(boothOverlay) boothOverlay.style.display='flex'; }
+    function hideBoothOverlay(){ if(boothOverlay) boothOverlay.style.display='none'; }
+
+    async function countdownWithCaption(seconds, caption){
+      showBoothOverlay();
+      if(boothCaption) boothCaption.textContent = caption || '';
+      for(let s=seconds; s>0; s--){
+        if(boothCount) boothCount.textContent = String(s);
+        await sleep(1000);
+      }
+      if(boothCount) boothCount.textContent = '';
+    }
+
+    function captureToDataUrl(){
+      resizeCanvasToVideo();
+      const ctx = canvas.getContext('2d');
+      const filterMap = {none:'none', grayscale:'grayscale(100%)', sepia:'sepia(60%)', invert:'invert(100%)', vibrant:'saturate(140%) contrast(110%)', contrast:'contrast(130%) brightness(105%)', cool:'contrast(105%) saturate(110%) hue-rotate(200deg)', warm:'contrast(105%) saturate(110%) hue-rotate(-15deg)', blur:'blur(2px) saturate(105%)', bwFilm:'grayscale(100%) contrast(120%) brightness(95%)'};
+      ctx.filter = filterMap[currentFilter] || 'none';
+      if(mirrorSave.checked){ ctx.save(); ctx.scale(-1,1); ctx.translate(-canvas.width,0); ctx.drawImage(video, 0, 0, canvas.width, canvas.height); ctx.restore(); }
+      else ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/png');
+    }
+
+    async function composePhotostrip(shots){
+      const styleSel = document.getElementById('boothStyle');
+      const stickerSel = document.getElementById('boothSticker');
+      const showDate = document.getElementById('boothShowDate');
+      const style = styleSel ? styleSel.value : 'classic';
+      const sticker = stickerSel ? stickerSel.value : 'none';
+      const withDate = showDate ? showDate.checked : true;
+
+      // strip size
+      const w = 500, h = 1300; // portrait strip
+      const frameH = 320, gap = 26, margin = 24;
+      const frameW = w - margin*2;
+
+      const strip = document.createElement('canvas');
+      strip.width = w; strip.height = h;
+      const ctx = strip.getContext('2d');
+
+      // background style
+      if(style === 'classic'){ ctx.fillStyle = '#111'; }
+      else if(style === 'white'){ ctx.fillStyle = '#fff'; }
+      else if(style === 'pink'){ ctx.fillStyle = '#FFEBEB'; }
+      else if(style === 'film'){ const g = ctx.createLinearGradient(0,0,w,h); g.addColorStop(0,'#1f2937'); g.addColorStop(1,'#111827'); ctx.fillStyle = g; }
+      ctx.fillRect(0,0,w,h);
+
+      // inner panel
+      const panelX = 10, panelY = 10, panelW = w-20, panelH = h-20;
+      ctx.fillStyle = style==='classic' || style==='film' ? '#2b2b2b' : '#fff';
+      ctx.fillRect(panelX, panelY, panelW, panelH);
+
+      // draw frames
+      for(let i=0;i<3;i++){
+        const img = await loadImageSafe(shots[i] || shots[shots.length-1]);
+        const x = margin, y = margin + i*(frameH + gap);
+        // frame background
+        ctx.fillStyle = '#000'; ctx.fillRect(x-6, y-6, frameW+12, frameH+12);
+        if(img){
+          // cover fit
+          const r = Math.min(frameW/img.width, frameH/img.height);
+          const iw = img.width*r, ih = img.height*r;
+          const ix = x + (frameW - iw)/2, iy = y + (frameH - ih)/2;
+          ctx.drawImage(img, ix, iy, iw, ih);
+        } else {
+          ctx.fillStyle = '#e5e7eb'; ctx.fillRect(x, y, frameW, frameH);
+        }
+      }
+
+      // sticker
+      if(sticker && sticker !== 'none'){
+        ctx.font = '64px sans-serif';
+        ctx.fillStyle = style==='classic' || style==='film' ? '#fff' : '#111';
+        ctx.fillText(sticker, w - 90, 80);
+      }
+
+      // footer date
+      if(withDate){
+        ctx.fillStyle = style==='classic' || style==='film' ? '#fff' : '#111';
+        ctx.font = '20px sans-serif';
+        const text = new Date().toLocaleDateString();
+        const tw = ctx.measureText(text).width;
+        const tx = (w - tw)/2;
+        ctx.fillText(text, tx, h - 20);
+      }
+
+      // output
+      const dataUrl = strip.toDataURL('image/png');
+      addCaptureThumb(dataUrl);
+    }
+
+    function loadImageSafe(src){
+      return new Promise((resolve)=>{ const im = new Image(); im.onload = ()=> resolve(im); im.onerror=()=> resolve(null); im.src = src; });
+    }
+
+    if(boothStart){ boothStart.addEventListener('click', runBooth); }
+    if(openBoothBtn){ openBoothBtn.addEventListener('click', ()=>{
+      const shots = getAllCaptureDataUrls();
+      if(shots.length < 3) {
+        setStatus('Please capture at least 3 photos in the main camera view to open the Photobooth.');
+        return;
+      }
+      sessionStorage.setItem('flappy_shots', JSON.stringify(shots));
+      window.location.href = 'photobooth.html';
+    }); }
+
+    // Viewer (70% screen)
+    const viewer = document.getElementById('viewer');
+    const viewerImg = document.getElementById('viewerImg');
+    const viewerClose = document.getElementById('viewerClose');
+    const viewerPrev = document.getElementById('viewerPrev');
+    const viewerNext = document.getElementById('viewerNext');
+    let viewerIndex = -1;
+
+    function getThumbImgs(){ return Array.from(captures.querySelectorAll('.thumb img')); }
+    function openViewerFromElement(imgEl){ const imgs = getThumbImgs(); viewerIndex = imgs.indexOf(imgEl); openViewer(imgEl.src); }
+    function openViewer(src){ if(!viewer || !viewerImg) return; viewerImg.src = src; viewer.style.display='flex'; }
+    function closeViewer(){ if(viewer) viewer.style.display='none'; }
+    function stepViewer(delta){ const imgs = getThumbImgs(); if(imgs.length===0) return; if(viewerIndex<0) viewerIndex=0; viewerIndex = (viewerIndex + delta + imgs.length) % imgs.length; openViewer(imgs[viewerIndex].src); }
+
+    if(viewerClose) viewerClose.addEventListener('click', closeViewer);
+    if(viewerPrev) viewerPrev.addEventListener('click', ()=> stepViewer(-1));
+    if(viewerNext) viewerNext.addEventListener('click', ()=> stepViewer(1));
+    if(viewer) viewer.addEventListener('click', (e)=>{ if(e.target === viewer) closeViewer(); });
+
+  </script>
+</body>
+</html>
